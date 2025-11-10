@@ -1,0 +1,45 @@
+<RCC>
+    <qresource prefix="/">
+        <file>material/qq.svg</file>
+        <file>material/设置.svg</file>
+        <file>material/白色关闭.svg</file>
+        <file>material/黑色关闭.svg</file>
+        <file>material/播放.svg</file>
+        <file>material/暂停.svg</file>
+        <file>background/shuangzi.png</file>
+        <file>music/小阿七-从前说.mp3</file>
+        <file>background/浅色.png</file>
+        <file>background/hhh.png</file>
+        <file>background/hhhh.png</file>
+        <file>img/swing/swing_0.png</file>
+        <file>img/swing/swing_1.png</file>
+        <file>img/swing/swing_2.png</file>
+        <file>img/swing/swing_3.png</file>
+        <file>img/swing/swing_4.png</file>
+        <file>img/swing/swing_5.png</file>
+        <file>img/swing/swing_6.png</file>
+        <file>img/swing/swing_7.png</file>
+        <file>img/swing/swing_8.png</file>
+        <file>img/swing/swing_9.png</file>
+        <file>img/swing/swing_10.png</file>
+        <file>img/swing/swing_11.png</file>
+        <file>img/swing/swing_12.png</file>
+        <file>img/swing/swing_13.png</file>
+        <file>img/swing/swing_14.png</file>
+        <file>img/swing/swing_15.png</file>
+        <file>img/swing/swing_16.png</file>
+        <file>img/swing/swing_17.png</file>
+        <file>img/swing/swing_18.png</file>
+        <file>img/swing/swing_19.png</file>
+        <file>img/swing/swing_20.png</file>
+        <file>img/swing/swing_21.png</file>
+        <file>img/swing/swing_22.png</file>
+        <file>img/swing/swing_23.png</file>
+        <file>img/swing/swing_24.png</file>
+        <file>img/swing/swing_25.png</file>
+        <file>background/yy.png</file>
+        <file>background/cs.png</file>
+        <file>background/1001.png</file>
+        <file>background/1002.png</file>
+    </qresource>
+</RCC>
