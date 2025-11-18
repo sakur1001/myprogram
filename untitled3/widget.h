@@ -5,14 +5,13 @@
 #include<QEvent>
 #include<QMouseEvent>
 #include<QDebug>
-#include<QSqlDatabase>
-#include <QSqlQuery>
+
 #include <QMessageBox>
 #include <QToolButton>
 #include <QPointer>
-
+#include<QTcpSocket>
 #include "mainwindow.h"
-
+#include "client.h"
 QT_BEGIN_NAMESPACE
 namespace Ui {
 class Widget;
@@ -26,9 +25,11 @@ class Widget : public QWidget
 public:
     Widget(QWidget *parent = nullptr);
     ~Widget();
-    int userId;
-    QSqlDatabase db;
-    MainWindow*ppage2=NULL;//保存页面二地址
+    Client *m_client;  // 声明m_client成员变量
+
+
+    MainWindow *mainWin;
+
 
 private slots:
     void on_login_clicked();
@@ -43,14 +44,23 @@ private slots:
     void on_regist_clicked();
 
     void on_confirm_pushButton_clicked();
+
+
+
+
     void initui();
     void regcjeck();
-    void initsql();
+
 private:
     Ui::Widget *ui;
 
+    void onloginSuccess(const QJsonObject &userData);//登录成功跳转页面
+    void onloginFailed(const QString &reason);
+    void onregisterSuccess();//注册成功跳转页面
+    void onregisterFailed(const QString &reason);
 
-    bool checkAccountExists(const QString &account); // 检查账号是否已存在
+
+
 };
 
 class DragWidgetFilter : public QObject{        //拖拽过滤器

@@ -41,5 +41,6 @@
         <file>background/cs.png</file>
         <file>background/1001.png</file>
         <file>background/1002.png</file>
+        <file>img/默认头像.svg</file>
     </qresource>
 </RCC>

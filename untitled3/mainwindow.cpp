@@ -6,6 +6,8 @@
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
+    , m_client(nullptr)  // 初始化 m_client
+    , m_anotherWidget(nullptr)  // 初始化 m_anotherWidget
 {
     ui->setupUi(this);
 
@@ -13,9 +15,10 @@ MainWindow::MainWindow(QWidget *parent)
     Initlottery();
     initmusic();
 
-
     this->installEventFilter(new DragWidgetFilter(this));
     this->ppage3=new pallet();//实例化页面三
+
+
 }
 
 MainWindow::~MainWindow()
@@ -23,6 +26,14 @@ MainWindow::~MainWindow()
     delete ui;
 }
 
+void MainWindow::setClient(Client *client)
+{
+    m_client = client;
+    if (m_client) {
+        connect(m_client, &Client::friendListReceived, this, &MainWindow::onFriendListReceived);
+        connect(m_client, &Client::profileUpdateResponse, this, &MainWindow::onProfileUpdateResponse);
+    }
+}
 void MainWindow::initui()
 {
     setWindowFlags(Qt::FramelessWindowHint);
@@ -246,18 +257,6 @@ void MainWindow::on_pushButton_4_clicked()
 }
 
 
-
-void  MainWindow::InitALL(const QSqlDatabase &db,int userId,QString account)
-{
-    m_db = db;
-    m_userId = userId;
-    m_account=account;
-    InitData();
-    listfriend();
-
-}
-
-
 void MainWindow::on_chooseAvatarButton_clicked()
 {
 
@@ -275,33 +274,48 @@ void MainWindow::on_chooseAvatarButton_clicked()
     }
 }
 
-void MainWindow::on_submitButton_clicked()
+void MainWindow::on_submitButton_clicked()  //更改用户资料
 {
-    // int userId = m_userId;
-    int level=0;
-    auto avatar=m_avatarPath ;
-    int age = ui->agelineEdit->text().trimmed().toInt(); // 转换为int类型后再绑定
-    auto birthday=ui->birthdaylineEdit->text().trimmed();
-    auto signature=ui->signatureEdit->toPlainText().trimmed();
-    QSqlQuery query(m_db);
-    query.prepare("UPDATE user_profile SET avatar=:avatar,level=:level, signature=:signature, age=:age, birthday=:birthday WHERE user_id=:userId");
-    query.bindValue(":avatar", avatar);
-    query.bindValue(":signature",signature);
-    query.bindValue(":level",level);
-    query.bindValue(":age", age);
-    query.bindValue(":birthday", birthday);
-    query.bindValue(":userId", m_userId);
-
-    if (query.exec()) {
-        QMessageBox::information(this, "提示", "资料更新成功！");
-        InitData();
-    }else {
-        QMessageBox::warning(this, "提示", "资料更新失败：" + query.lastError().text());
-    }
+    QString user_name=ui->user_nameEdit->text().trimmed();
+    int level = 0;
+    auto avatar = m_avatarPath;
+    int age = ui->agelineEdit->text().trimmed().toInt();
+    QString birthday = ui->birthdaylineEdit->text().trimmed();
+    QString signature = ui->signatureEdit->toPlainText().trimmed();
+    // 构造用户资料消息
+    QJsonObject user_profileMsg;
+    user_profileMsg["type"] = "update_profile";
+    user_profileMsg["username"] = user_name;
+    user_profileMsg["level"] = level;
+    user_profileMsg["avatar"] = avatar;
+    user_profileMsg["signature"] = signature;
+    user_profileMsg["age"] = age;
+    user_profileMsg["birthday"] = birthday;
+    // 发送
+    QJsonDocument doc(user_profileMsg);
+    m_client->m_tcpSocket->write(doc.toJson());
 }
 void MainWindow::avatar(QString avatarPath,QLabel* label)
 {
-    QPixmap originalPixmap(avatarPath);
+    QPixmap originalPixmap;
+    // 加载图片
+    if (avatarPath.startsWith(":")) {
+        // 从资源文件加载
+        originalPixmap.load(avatarPath);
+    } else {
+        // 从文件系统加载
+        originalPixmap.load(avatarPath);
+    }
+    if (originalPixmap.isNull()) {
+        qDebug() << "无法加载头像:" << avatarPath;
+        // 加载默认头像
+        originalPixmap.load("://img/默认头像.svg");
+        if (originalPixmap.isNull()) {
+            qDebug() << "默认头像也无法加载";
+            return;
+        }
+    }
+
     QSize labelSize = label->size();
     QPixmap circlePixmap(labelSize);
     circlePixmap.fill(Qt::transparent); // 背景设为透明
@@ -328,137 +342,111 @@ void MainWindow::avatar(QString avatarPath,QLabel* label)
     painter.drawPixmap(x, y, scaledPixmap); // 绘制到圆形裁剪区域内
     label->setPixmap(circlePixmap);
 }
-void MainWindow::InitData()
+void MainWindow::onProfileUpdateResponse(const QJsonObject &userData)
 {
-    QSqlQuery insertQuery(m_db);
-    insertQuery.prepare(R"(
-        INSERT INTO user_profile (user_id, avatar, level, signature, age, birthday)
-        VALUES (:userId, '', 0, '', 0, '2000-01-01')
-        ON DUPLICATE KEY UPDATE user_id=user_id  -- 存在则不执行，不存在则插入
-    )");
-    insertQuery.bindValue(":userId", m_userId);
-    insertQuery.exec();
 
-    QSqlQuery query(m_db);
-    query.prepare("SELECT avatar,level, signature, age, birthday FROM user_profile WHERE user_id = :userId");
-    query.bindValue(":userId", m_userId);
-
-    if (query.exec()&& query.next()) {
-
-        // 1. 头像（假设数据库存储的是图片路径）
-        QString avatarPath = query.value("avatar").toString();
-        if (avatarPath.isEmpty()) {
-            avatarPath = "://background/cs.png";
+    QString avatarPath = userData["avatar"].toString();
+    if (!avatarPath.isEmpty()) {
+        // 检查文件是否存在（对于资源文件或绝对路径）
+        if (avatarPath.startsWith(":") || QFile::exists(avatarPath)) {
+            avatar(avatarPath, ui->label_7);
+            avatar(avatarPath, ui->label_2);
+            m_avatarPath = avatarPath;
+            qDebug() << "头像加载成功:" << avatarPath;
+        } else {
+            // 如果头像路径不存在，使用默认头像
+            QString defaultAvatar = "://img/默认头像.svg";
+            avatar(defaultAvatar, ui->label_7);
+            avatar(avatarPath, ui->label_2);
+            m_avatarPath = defaultAvatar;
+            qDebug() << "使用默认头像:" << defaultAvatar;
         }
-        if (!avatarPath.isEmpty()) {
-            avatar(avatarPath,ui->label_2);
-            // 将处理好的圆形头像设置到label
-            avatar(avatarPath,ui->label_7);
-        }
-
-        // 2. 等级
-        int level = query.value("level").toInt();
-        ui->label_3->setText(QString("LV%1").arg(level));
-
-        // 3. 签名
-        auto signature = query.value("signature").toString();
-        ui->label_4->setText(signature.isEmpty() ? "暂无签名" :signature);
-        ui->signatureEdit->setText(signature.isEmpty() ? "暂无签名" :signature);
-        // 4. 年龄
-        int age = query.value("age").toInt();
-        ui->label_5->setText(QString::number(age));
-        ui->agelineEdit->setText(QString::number(age));
-        // 5. 生日
-        auto birthday = query.value("birthday").toString();
-        ui->label_6->setText(birthday.isEmpty() ? "2000-01-01" : birthday);
-        ui->birthdaylineEdit->setText(birthday.isEmpty() ? "2000-01-01" : birthday);
-        qDebug() <<m_userId;
-
     } else {
-        qDebug() << "查询用户资料失败："<< query.lastError().text();
+        // 如果没有头像路径，使用默认头像
+        QString defaultAvatar = "://img/默认头像.svg";
+        avatar(defaultAvatar, ui->label_7);
+        avatar(avatarPath, ui->label_2);
+        m_avatarPath = defaultAvatar;
+        qDebug() << "头像路径为空，使用默认头像";
     }
+    ui->label_16->setText(userData["username"].toString());
+    ui->label_3->setText(QString::number(userData["level"].toInt()));
+    ui->label_5->setText(QString::number(userData["age"].toInt()));
+    ui->label_6->setText(userData["birthday"].toString());
+    ui->label_4->setText(userData["signature"].toString());
+
+    // 设置编辑页面的默认值
+
+    ui->user_nameEdit->setText(userData["username"].toString());
+    ui->agelineEdit->setText(QString::number(userData["age"].toInt()));
+    ui->birthdaylineEdit->setText(userData["birthday"].toString());
+    ui->signatureEdit->setText(userData["signature"].toString());
+
+
+    // 保存用户ID和账号
+    m_userId = userData["user_id"].toInt();
+    m_account = userData["account"].toString(); // 或者使用 username
 }
-
-void MainWindow::listfriend()
+void MainWindow::requestFriendList()
 {
-    qDebug() <<m_userId;
-    QTreeWidget *friendTree = ui->friendTree;
-    friendTree->clear(); // 清空原有内容
-    friendTree->setColumnCount(1);
-    friendTree->setHeaderHidden(true);
+    // 请求好友列表
+    QJsonObject request;
+    request["type"] = "get_user_list";
+    request["user_id"] = m_userId;
 
-    QMap<int, QTreeWidgetItem*> groupItemMap; // 存储“分组ID-分组项”的映射
+    QJsonDocument doc(request);
+    m_client->m_tcpSocket->write(doc.toJson());
 
-    // 步骤1：查询当前用户的所有分组
-    int userId = m_userId;
-    QSqlQuery insertGroupQuery;
-    QString insertSql = QString("INSERT INTO contact_groups (group_name, user_id) VALUES ('我的好友', %1)  "
-                                "ON DUPLICATE KEY UPDATE user_id=user_id  -- 存在则不执行，不存在则插入")
-                            .arg(userId);
-    insertGroupQuery.exec(insertSql);
+}
+void MainWindow::onFriendListReceived(const QJsonObject &friendList)
+{
+    // 处理服务器返回的好友列表
+    ui->friendTree->clear();
+    ui->friendTree->setColumnCount(1);
+    ui->friendTree->setHeaderHidden(true);
+    qDebug()<<"联系人列表"<<friendList["groups"];
+    // 解析服务器返回的JSON数据并构建好友列表
+    if (friendList.contains("groups")) {
+        QJsonArray groups = friendList["groups"].toArray();
+        for (const QJsonValue &groupValue : groups) {  // 使用 QJsonValue
+            QJsonObject group = groupValue.toObject();  // 转换为 QJsonObjec
+            QString groupName = group["group_name"].toString();
+            int groupId = group["group_id"].toInt();
 
-
-    QSqlQuery groupQuery;
-    groupQuery.prepare("SELECT group_id, group_name FROM contact_groups WHERE user_id = :userId");
-    groupQuery.bindValue(":userId", userId);
-    bool Group = false;
-    if (groupQuery.exec()) {
-        while (groupQuery.next()) {
-
-
-            int groupId = groupQuery.value("group_id").toInt();
-             qDebug() << "当前遍历分组：" << groupId ; // 日志1：确认循环是否执行
-            if (!Group){
-                QSqlQuery insertContactQuery;
-                qDebug() << "触发插入管理员，groupId：" << groupId;
-                QString insertContactSql = QString("INSERT INTO contacts (nickname, user_id, group_id) VALUES ('管理员', %1, %2)"
-                                                   "ON DUPLICATE KEY UPDATE user_id=user_id ,group_id=group_id -- 存在则不执行，不存在则插入")
-                                               .arg(userId).arg(groupId);
-                if (!insertContactQuery.exec(insertContactSql)) {
-                    qDebug() << "插入管理员失败！错误信息：" << insertContactQuery.lastError().text();
-                    qDebug() << "执行的SQL语句：" << insertContactSql;
-                }
-                Group=true;
-            }
-            QString groupName = groupQuery.value("group_name").toString();
-            QTreeWidgetItem *groupItem = new QTreeWidgetItem(friendTree);
-            ui->comboBox->addItem(groupName);
+            QTreeWidgetItem *groupItem = new QTreeWidgetItem(ui->friendTree);
             groupItem->setText(0, groupName);
-            groupItem->setExpanded(true); // 默认展开分组
-            groupItemMap.insert(groupId, groupItem);
-        }
-    }
+            groupItem->setData(0, Qt::UserRole, "group"); // 标记为分组
+            groupItem->setData(0, Qt::UserRole + 1, groupId); // 分组ID
+            groupItem->setData(0, Qt::UserRole + 2, groupName); // 分组名称
+            groupItem->setExpanded(true);
 
+            if (group.contains("contacts")) {
+                QJsonArray contacts = group["contacts"].toArray();
+                for (const QJsonValue &contactValue : contacts) {
+                    QJsonObject contact = contactValue.toObject();
+                    QString nickname = contact["nickname"].toString();
+                    QString account = contact["account"].toString();
+                    QString userName = contact["user_name"].toString();
+                    QString avatar = contact["avatar"].toString();
+                    int contactId = contact["contact_id"].toInt();
+                    int level = contact["level"].toInt();
+                    QString signature = contact["signature"].toString();
 
-
-
-
-    // 步骤2：查询当前用户的所有联系人
-    QSqlQuery contactQuery;
-    QString contactSql = QString("SELECT contact_id, nickname, group_id FROM contacts WHERE user_id = %1")
-                             .arg(m_userId);
-    if (contactQuery.exec(contactSql)) {
-        while (contactQuery.next()) {
-            QString nickname = contactQuery.value("nickname").toString();
-            int groupId = contactQuery.value("group_id").toInt();
-
-            // 确定联系人所属分组（无分组则创建“无分组”项）
-            QTreeWidgetItem *parentItem = groupItemMap.value(groupId, nullptr);
-            if (!parentItem) {
-                parentItem = new QTreeWidgetItem(friendTree);
-                parentItem->setText(0, "无分组");
-                groupItemMap.insert(-1, parentItem);
+                    QTreeWidgetItem *contactItem = new QTreeWidgetItem(groupItem);
+                    contactItem->setText(0, nickname);
+                    contactItem->setIcon(0, QIcon(":/icons/avatar.png"));
+                    contactItem->setData(0, Qt::UserRole, "contact"); // 标记为联系人
+                    contactItem->setData(0, Qt::UserRole + 1, contactId); // 联系人ID
+                    contactItem->setData(0, Qt::UserRole + 2, account); // 账号
+                    contactItem->setData(0, Qt::UserRole + 3, nickname); // 昵称
+                    contactItem->setData(0, Qt::UserRole + 4, userName); // 用户名
+                    contactItem->setData(0, Qt::UserRole + 5, avatar); // 头像
+                    contactItem->setData(0, Qt::UserRole + 6, level); // 等级
+                    contactItem->setData(0, Qt::UserRole + 7, signature); // 签名
+                }
             }
-
-            // 创建联系人节点并设置信息
-            QTreeWidgetItem *contactItem = new QTreeWidgetItem(parentItem);
-            contactItem->setText(0, nickname);
-            contactItem->setIcon(0, QIcon(":/icons/avatar.png")); // 联系人头像
-            contactItem->setData(0, Qt::UserRole, contactQuery.value("contact_id").toInt()); // 存储联系人ID，用于删除
         }
     }
-
-
 }
 
 void MainWindow::on_dataBackButton_clicked()
@@ -472,54 +460,35 @@ void MainWindow::on_comboBox_activated(int index)
 
 }
 
-
+//添加联系人
 void MainWindow::on_pushButton_5_clicked()
 {
-    QString nickname=ui->lineEdit->text().trimmed();
-    QString group_name=ui->comboBox->currentText();
+    QString contact_account = ui->lineEdit->text().trimmed();
+    QString group_name = ui->lineEdit_2->text().trimmed();
 
     // 输入校验
-    if (nickname.isEmpty()) {
-        QMessageBox::warning(this, "注册提示", "账号不能为空！");
+    if (contact_account.isEmpty()) {
+        QMessageBox::warning(this, "提示", "账号不能为空！");
         return;
     }
     if (group_name.isEmpty()) {
-        QMessageBox::warning(this, "注册提示", "密码不能为空！");
-        return;
-    }
-    int groupId = getGroupIdByGroupName(group_name);
-    if (groupId == -1) {
-        QMessageBox::warning(this, "提示", "未找到对应的分组，请先创建分组！");
+        QMessageBox::warning(this, "提示", "请选择分组！");
         return;
     }
 
-    // 插入数据库
-    QSqlQuery queryadd(m_db);
-    queryadd.prepare("INSERT INTO contacts (nickname, group_id, user_id) VALUES (:nickname, :group_id, :user_id)");
-    queryadd.bindValue(":nickname", nickname);
-    queryadd.bindValue(":group_id", groupId);
-    queryadd.bindValue(":user_id", m_userId);
+    // 通过客户端发送添加好友请求
+    QJsonObject addFriendMsg;
+    addFriendMsg["type"] = "add_friend";
+    addFriendMsg["contact_account"] = contact_account;
+    addFriendMsg["group_name"] = group_name;
 
-    if (queryadd.exec()) {
-        listfriend();
-        QMessageBox::information(this, "提示", "添加成功！");
+    QJsonDocument doc(addFriendMsg);
+    m_client->m_tcpSocket->write(doc.toJson());
 
-        ui->stackedWidget->setCurrentWidget(ui->page4);
-        ui->lineEdit->clear();
-    }
-}
-int MainWindow::getGroupIdByGroupName(const QString &groupName)
-{
-    QSqlQuery query(m_db);
-    // SQL：根据分组名称和用户ID，查询唯一的group_id
-    query.prepare("SELECT group_id FROM contact_groups WHERE group_name = :groupName AND user_id = :userId");
-    query.bindValue(":groupName", groupName);
-    query.bindValue(":userId", m_userId);
 
-    if (query.exec() && query.next()) {
-        return query.value("group_id").toInt(); // 找到则返回group_id
-    }
-    return -1; // 未找到则返回-1（需后续处理）
+    // ui->stackedWidget->setCurrentWidget(ui->page4);
+    ui->lineEdit->clear();
+
 }
 
 void MainWindow::on_friendTree_itemClicked(QTreeWidgetItem *item, int column)
@@ -528,17 +497,20 @@ void MainWindow::on_friendTree_itemClicked(QTreeWidgetItem *item, int column)
     if (item->parent() == nullptr) return;  // parent为null是根节点，不处理
 
     // 获取点击节点的文本（column=0，对应第1列）
-    QString itemText = item->text(column);
-    QString Myname = m_account;
+    QString targetnickname = item->data(0, Qt::UserRole + 3).toString(); // 昵称
+    QString targetAccount = item->data(0, Qt::UserRole + 2).toString();
     // 4. 实例化并显示弹出窗口（单例模式：避免重复创建）
     if (m_anotherWidget == nullptr) {
-        m_anotherWidget = new Client();  // this作为父窗口，关闭主窗口时自动销毁弹窗
-        // 可选：设置弹窗为非模态（show()）或模态（exec()）
-        // 模态：exec() → 弹窗打开时主窗口不可操作；非模态：show() → 可同时操作两个窗口
+        // 创建Chat窗口，传入现有的TCP socket
+        m_anotherWidget = new Chat(m_client->m_tcpSocket);
+        // 连接聊天消息信号
+        connect(m_client, &Client::chatMessageReceived,
+                m_anotherWidget, &Chat::onChatMessageReceived);
+
     }
 
     // 可选：向弹窗传递点击的节点信息（如成员名称）
-    m_anotherWidget->setTargetName(itemText,Myname);
+    m_anotherWidget->setTargetName(targetnickname,targetAccount);
 
     // 显示弹窗
     m_anotherWidget->show();

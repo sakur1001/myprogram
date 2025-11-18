@@ -6,14 +6,14 @@
 #include<QMediaPlayer>
 #include <QAudioOutput>
 #include<QTimerEvent>
-#include <QSqlQuery>
-#include <QSqlError>
+
 #include <QUrl>
 #include <QMessageBox>
 #include<QFileDialog>
 #include<QTreeWidgetItem>
 #include "pallet.h"
 #include "client.h"
+#include "chat.h"
 namespace Ui {
 class MainWindow;
 }
@@ -25,11 +25,14 @@ class MainWindow : public QMainWindow
 public:
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
-    pallet*ppage3=NULL;//保存页面三地址
-    void InitALL(const QSqlDatabase &db,int userId,QString account);
+    Client *m_client;  // 声明m_client成员变量
+    void setClient(Client *client);
+    pallet*ppage3;//保存页面三地址
     void timerEvent(QTimerEvent*e);
     void initmusic();
+    void onProfileUpdateResponse(const QJsonObject &userData); //用户资料
 
+    void requestFriendList();  //请求联系人列表
 
 signals:
     void back();
@@ -74,7 +77,7 @@ private slots:
 
 private:
     Ui::MainWindow *ui;
-    int getGroupIdByGroupName(const QString &groupName);
+
 
     bool m_lottery;
     int timerid;
@@ -85,14 +88,16 @@ private:
     int m_userId;
     QString m_account;
     QString m_avatarPath;
-    QSqlDatabase m_db;
+
+
+
     void initui();
     void Initlottery();
-    void InitData();
-    void listfriend();
+
+    void onFriendListReceived(const QJsonObject &friendList);  //列表构建
     QPixmap circlePixmap;
     void avatar(QString avatarPath,QLabel*label);
-    Client *m_anotherWidget;
+     Chat *m_anotherWidget;
 
 
 };

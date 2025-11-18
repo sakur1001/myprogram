@@ -1,15 +1,25 @@
 #include "widget.h"
 #include "./ui_widget.h"
-//#include "mainwindow.h"
+
 #include<QRegularExpressionValidator>
 #include <QPushButton>
+#include <QInputDialog>
+
 Widget::Widget(QWidget *parent)
     : QWidget(parent)
     , ui(new Ui::Widget)
+    , m_client(new Client(this))  // 直接创建 Client
+    , mainWin(nullptr)  // 初始化 mainWin
 {
     ui->setupUi(this);
     initui();
-    initsql();
+
+
+
+    connect(m_client, &Client::loginSuccess, this, &Widget::onloginSuccess);
+    connect(m_client, &Client::loginFailed, this, &Widget::onloginFailed);
+    connect(m_client, &Client::registerSuccess, this, &Widget::onregisterSuccess);
+    connect(m_client, &Client::registerFailed, this, &Widget::onregisterFailed);
 
     this->installEventFilter(new DragWidgetFilter(this));//过滤器鼠标事件
 
@@ -41,17 +51,8 @@ void Widget::initui()
 
     setWindowFlag(Qt::FramelessWindowHint);//无标框
     setAttribute(Qt::WA_TranslucentBackground);//窗口透明
-}
 
-void Widget::initsql()
-{
-    db=QSqlDatabase::addDatabase("QMYSQL");
-    db.setHostName("localhost");
-    // db.setPort(3306);
-    db.setDatabaseName("user_db");
-    db.setUserName("root");
-    db.setPassword("123456");
-    db.open();
+
 }
 
 
@@ -63,28 +64,41 @@ void Widget::on_login_clicked()//登录账号
         QMessageBox::warning(this, "登录提示", "账号或密码不能为空！");
         return;
     }
+    // 构造登录消息
+    QJsonObject loginMsg;
+    loginMsg["type"] = "login";
+    loginMsg["account"] = account;
+    loginMsg["password"] = password;
+    loginMsg["timestamp"] = QDateTime::currentDateTime().toMSecsSinceEpoch();
 
-    QSqlQuery query(db);
-    query.prepare("SELECT * FROM user WHERE account = :account AND password = :password");
-    query.bindValue(":account", account);
-    query.bindValue(":password", password);
-    if (query.exec() && query.next()) {
-        userId = query.value("id").toInt();
-
-        this->ppage2=new MainWindow;//实例化页面二
-
-
-
-        this->ppage2->InitALL(db,userId,account); // 传递数据库连接
-
-        connect(this->ppage2, &MainWindow::back, this, &Widget::on_back_pushButton_clicked);
-        this->hide();
-        this->ppage2->show();
-
-    } else {
-        QMessageBox::warning(this, "登录提示", "账号或密码错误！");
-    }
+    // 发送登录请求
+    QJsonDocument doc(loginMsg);
+    m_client->m_tcpSocket->write(doc.toJson());
 }
+
+
+void Widget::onloginSuccess(const QJsonObject &userData)
+{
+    // 登录成功，跳转到主界面
+    mainWin = new MainWindow();  // 传递同一个客户端实例
+    mainWin->setClient(m_client);  // 设置客户端
+    // 传递用户数据并初始化界面
+    mainWin->onProfileUpdateResponse(userData);
+
+    // 请求好友列表
+    mainWin->requestFriendList();
+    mainWin->show();
+    this->hide();
+    // 连接返回信号
+    connect(mainWin, &MainWindow::back, this, &Widget::on_back_pushButton_clicked);
+}
+
+void Widget::onloginFailed(const QString &reason){
+    QMessageBox::warning(this, "登录失败", reason);
+    ui->password_lineEdit->clear();
+    ui->password_lineEdit->setFocus();
+}
+
 
 void Widget::on_confirm_pushButton_clicked()//注册账号
 {
@@ -106,25 +120,36 @@ void Widget::on_confirm_pushButton_clicked()//注册账号
         ui->again_password_lineEdit->clear();
         return;
     }
-    if (checkAccountExists(account)) {
-        QMessageBox::warning(this, "注册提示", "该账号已存在！");
-        ui->reg_account_lineEdit->clear();
-        return;
-    }
 
-    // 插入数据库
-    QSqlQuery query(db);
-    query.prepare("INSERT INTO user (account, password) VALUES (:account, :password)");
-    query.bindValue(":account", account);
-    query.bindValue(":password", password); // 注意：实际项目需加密密码，此处为演示用明文
-    if (query.exec()) {
-        QMessageBox::information(this, "注册提示", "注册成功！");
-        ui->stackedWidget->setCurrentWidget(ui->log_page); // 跳转到登录页
-        ui->reg_account_lineEdit->clear();
-        ui->reg_password_lineEdit->clear();
-        ui->again_password_lineEdit->clear();
-    }
-    qDebug()<<__FUNCTION__<<"username:"<<account<<password;
+    // 构造注册消息
+    QJsonObject registerMsg;
+    registerMsg["type"] = "register";
+    registerMsg["account"] = account;
+    registerMsg["password"] = password;
+    registerMsg["againpwd"] = againpwd;
+    registerMsg["timestamp"] = QDateTime::currentDateTime().toMSecsSinceEpoch();
+
+    // 发送注册请求
+    QJsonDocument doc(registerMsg);
+    m_client->m_tcpSocket->write(doc.toJson());
+}
+
+void Widget::onregisterSuccess()
+{
+    QMessageBox::information(this, "注册成功", "账号注册成功，请登录！");
+    ui->stackedWidget->setCurrentWidget(ui->log_page);
+    // 清空注册表单
+    ui->reg_account_lineEdit->clear();
+    ui->reg_password_lineEdit->clear();
+    ui->again_password_lineEdit->clear();
+
+}
+void Widget::onregisterFailed(const QString &reason)
+{
+    QMessageBox::warning(this, "注册失败", reason);
+    ui->reg_password_lineEdit->clear();
+    ui->again_password_lineEdit->clear();
+
 }
 
 void Widget::on_radioButton_clicked()
@@ -149,8 +174,7 @@ void Widget::on_close_toolButton_clicked()
 
 void Widget::on_back_pushButton_clicked()
 {
-    // this->ppage2->hide();
-    delete this->ppage2;
+    delete this->mainWin;
     this->show();
 }
 void Widget::on_regback_pushButton_clicked()
@@ -165,16 +189,6 @@ void Widget::on_regist_clicked()
     ui->stackedWidget->setCurrentWidget(ui->reg_page);
 }
 
-
-
-
-bool Widget::checkAccountExists(const QString &account)
-{
-    QSqlQuery query(db);
-    query.prepare("SELECT * FROM user WHERE account = :account");
-    query.bindValue(":account", account);
-    return query.exec() && query.next();
-}
 
 void Widget::regcjeck()
 {
